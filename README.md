@@ -1,38 +1,19 @@
-# every lot bot
+# every lot indianapolis
 
-This library supports a Twitter bot that posts Google Streetview pictures of every property in an SQLite database. 
-Existing instances of the bot: <a href="https://twitter.com/everylotnyc">@everylotnyc</a>, <a href="https://twitter.com/everylotchicago">@everylotchicago</a>, <a href="https://twitter.com/everylotsf">@everylotsf</a> and <a href="https://twitter.com/everylotla">@everylotla</a>. Since maps are instruments of power, these bots is a way of generating a tension between two different modes establishing power in urban space. [Read more about that](http://fakeisthenewreal.org/everylot/).
+This library supports a mastodon bot that posts Google Streetview pictures of every property in an SQLite database. 
 
 ## What you'll need
 
 Set up will be easier with at least a basic familiarity with the command line. A knowledge of GIS will be helpful.
 
-* A fresh Twitter account and a Twitter app, with registered keys
+* mastodonk API stuff, tba
 * A Google Streetview API token.
 * A SQLite db with a row for every address you're interested in
 * A place to run the bot (like a dedicated server or an Amazon AWS EC2 instance)
 
-### Twitter keys
+### mastodonk API
 
-Creating a new Twitter account should be straightforward. To create a Twitter app, register at [developer.twitter.com/apps](http://developer.twitter.com/apps). Once you have an app, you'll need to register your account with the app. [Twitter has details](https://dev.twitter.com/oauth/overview/application-owner-access-tokens) on that process.
-
-Once you have the keys, save them in a file called `bots.yaml` that looks like this:
-
-```yaml
-apps:
-    everylot:
-        consumer_key: 123456890123456890
-        consumer_secret: 123456890123456890123456890123456890
-users:
-    example_user_name:
-        key: 123456890123456890-123456890123456890123456890123456890
-        secret: 1234568901234568901234568901234568901234568
-        app: everylot
-```
-
-Change `example_user_name` to your Twitter account screen name. The app name can also be anything you want, but the name in the apps section must match the value of the users's `app` key.
-
-This file can be in `json` format, if you wish.
+To be figured out
 
 ### Streetview key
 
@@ -47,16 +28,18 @@ users: [etc]
 
 ### Address database
 
-Now, you'll need an SQLite database of addresses. At a minimum, the address database just needs an id field and list of addresses. It's helpful to also have a lat/lon coordinates, since if the Google API can't find a nearby address, the bot will use lat/lon instead.
+First thing, we need a list from the Indianapolis open data portal of all the parcels in the city-county. There is likely a "correct" way to do this through the arcgis api; however, there is no reason to learn all of that when we can just hack together a custom filter and download a geojson file. 
 
-One way to get this database is to download geodata and convert to to SQLite. Visit your county's open data page (if it has one). Ideally, you'll end up with the data in Shapefile format, which is actually four or five files that look like:
+A note: Marion County parcel IDs for regular property are a number; parcels for locations like railroad rights of way, common areas, etc, have an alphabetic prefix. The data portal gives us parcel IDs as a string `(PARCEL_C)` and an integer `(PARCEL_I)`. All those prefixed locations thus have PARCEL_I of zero due to the prefix letters not being converted correctly. Because we don't care about seeing streetview images of locations that might not have even have road access, we can filter by out all those `PARCEL_I = 0` entries. In order to do that, we have to figure out how the data portal filter urls work, which is fairly easy 
+
 ```
-Parcels_2015.dbf Parcels_2015.prj Parcels_2015.shp Parcels_2015.shx Parcels_2015.shp.xml
+https://data.indy.gov/datasets/IndyGIS::parcels/explore?filters=eyJQQVJDRUxfSSI6WzAsNTgxNDM3MV19&location=39.779718%2C-86.133000%2C11.97&showTable=true
 ```
 
-While you're at it, make sure to download the metadata and carefully note the fields you'll want to track. At a minimum, you'll need an ID field and an address field. The address may be broken into several parts, that's fine. A field that tracts the number of floors would be nice, too.
+That `filters` querystring just turns out to be base64 encoded data, and after play around with the filter scales for PARCEL_I, we can figure out that the format is `{"PARCEL_I":[<lower_bound>,<upper_bound>]}`. For the bounds I chose 1 and 99999999 as, while the parcels IDs appear to be a 7 digit number, I wanted make sure I didn't miss anything. Thus, after base64encoding `{"PARCEL_I":[1,99999999]}` to `eyJQQVJDRUxfSSI6WzEsOTk5OTk5OTldfQ==` and then percent encoding the equals signs to make eyJQQVJDRUxfSSI6WzAsOTk5OTk5OTldfQ%3D%3D  we can form a url of `https://data.indy.gov/datasets/IndyGIS::parcels/explore?filters=eyJQQVJDRUxfSSI6WzAsOTk5OTk5OTldfQ%3D%3D&location=39.779718%2C-86.133000%2C11.97&showTable=true` and download a nice geoJSON file with all the valid parcels, their info, and their lat/lon coordinates.
 
-Now, you'll need to transform that Shapefile into an SQLite database. The database should have a table named `lots` with these fields: `id`, `lat`, `lon`, `tweeted` (the last should be set to zero initially). You must also have some fields that represent the address, like `address`, `city` and `state`. Or, you might have `address_number`, `street_name` and `city`. Optionally, a `floors` field is useful for pointing the Streetview "camera". 
+
+Now, you'll need to transform that data into an SQLite database. The database should have a table named `lots` with these fields: `id`, `lat`, `lon`, `tweeted` (the last should be set to zero initially). You must also have some fields that represent the address, like `address`, `city` and `state`. Or, you might have `address_number`, `street_name` and `city`. Optionally, a `floors` field is useful for pointing the Streetview "camera". 
 
 (In the commands below, note that you don't have to type the "$", it's just there to mark the prompt where you enter the command.)
 
